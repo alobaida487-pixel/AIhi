@@ -17,6 +17,7 @@ import {
   ChannelType,
   OverwriteType,
   type Interaction,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
   type MessageComponentInteraction,
@@ -56,19 +57,16 @@ const BANK_DATA = {
 
 type BankKey = keyof typeof BANK_DATA;
 
-// ─── Products ─────────────────────────────────────────────────────────────────
+// ─── Autocomplete ─────────────────────────────────────────────────────────────
 
-const PRODUCTS = [
-  { value: "nitro", label: "نيترو" },
-  { value: "boosts", label: "بوستات" },
-  { value: "roblox", label: "حسابات روب" },
-  { value: "tiktok", label: "حسابات تيك انشاء قديم" },
-] as const;
-
-type ProductValue = (typeof PRODUCTS)[number]["value"];
-
-function getProductLabel(value: string): string {
-  return PRODUCTS.find((p) => p.value === value)?.label ?? value;
+async function handleOrderAutocomplete(interaction: AutocompleteInteraction): Promise<void> {
+  const config = loadConfig();
+  const focused = interaction.options.getFocused().toLowerCase();
+  const choices = config.products
+    .filter((p) => p.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((p) => ({ name: p, value: p }));
+  await interaction.respond(choices);
 }
 
 // ─── Duplicate ticket check ───────────────────────────────────────────────────
@@ -522,11 +520,76 @@ async function handlePartnershipModalSubmit(interaction: ModalSubmitInteraction)
   await interaction.editReply({ content: `تم فتح طلب الشراكة: ${ticketChannel.toString()}` });
 }
 
+// ─── /add-product command ─────────────────────────────────────────────────────
+
+async function handleAddProductCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (
+    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) &&
+    !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+  ) {
+    await interaction.reply({ content: "تحتاج صلاحية Administrator او Manage Server.", ephemeral: true });
+    return;
+  }
+
+  const name = interaction.options.getString("name", true).trim();
+  const config = loadConfig();
+
+  if (config.products.some((p) => p.toLowerCase() === name.toLowerCase())) {
+    await interaction.reply({ content: `المنتج "${name}" موجود بالفعل.`, ephemeral: true });
+    return;
+  }
+
+  config.products.push(name);
+  saveConfig(config);
+
+  await interaction.reply({
+    content: `تم اضافة المنتج "${name}" بنجاح.\nقائمة المنتجات الحالية:\n${config.products.map((p, i) => `${i + 1}. ${p}`).join("\n")}`,
+    ephemeral: true,
+  });
+}
+
+// ─── /delete-product command ──────────────────────────────────────────────────
+
+async function handleDeleteProductCommand(
+  interaction: ChatInputCommandInteraction,
+): Promise<void> {
+  if (
+    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) &&
+    !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+  ) {
+    await interaction.reply({ content: "تحتاج صلاحية Administrator او Manage Server.", ephemeral: true });
+    return;
+  }
+
+  const name = interaction.options.getString("name", true).trim();
+  const config = loadConfig();
+
+  const index = config.products.findIndex((p) => p.toLowerCase() === name.toLowerCase());
+  if (index === -1) {
+    await interaction.reply({
+      content: `المنتج "${name}" غير موجود.\nالمنتجات المتاحة:\n${config.products.map((p, i) => `${i + 1}. ${p}`).join("\n")}`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  config.products.splice(index, 1);
+  saveConfig(config);
+
+  const remaining = config.products.length > 0
+    ? config.products.map((p, i) => `${i + 1}. ${p}`).join("\n")
+    : "لا توجد منتجات";
+
+  await interaction.reply({
+    content: `تم حذف المنتج "${name}" بنجاح.\nقائمة المنتجات المتبقية:\n${remaining}`,
+    ephemeral: true,
+  });
+}
+
 // ─── /order command ───────────────────────────────────────────────────────────
 
 async function handleOrderCommand(interaction: ChatInputCommandInteraction): Promise<void> {
-  const productValue = interaction.options.getString("product", true) as ProductValue;
-  const productLabel = getProductLabel(productValue);
+  const productLabel = interaction.options.getString("product", true).trim();
   const config = loadConfig();
 
   if (!interaction.guild) {
@@ -643,12 +706,25 @@ export async function startBot(): Promise<void> {
           .setName("product")
           .setDescription("اختر المنتج الذي تريد شراءه")
           .setRequired(true)
-          .addChoices(
-            { name: "نيترو", value: "nitro" },
-            { name: "بوستات", value: "boosts" },
-            { name: "حسابات روب", value: "roblox" },
-            { name: "حسابات تيك انشاء قديم", value: "tiktok" },
-          ),
+          .setAutocomplete(true),
+      )
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName("add-product")
+      .setDescription("اضافة منتج جديد لقائمة المنتجات")
+      .addStringOption((opt) =>
+        opt.setName("name").setDescription("اسم المنتج").setRequired(true),
+      )
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName("delete-product")
+      .setDescription("حذف منتج من قائمة المنتجات")
+      .addStringOption((opt) =>
+        opt
+          .setName("name")
+          .setDescription("اسم المنتج المراد حذفه")
+          .setRequired(true)
+          .setAutocomplete(true),
       )
       .toJSON(),
   ];
@@ -668,10 +744,23 @@ export async function startBot(): Promise<void> {
 
   client.on("interactionCreate", async (interaction: Interaction) => {
     try {
+      if (interaction.isAutocomplete()) {
+        const config = loadConfig();
+        const focused = interaction.options.getFocused().toLowerCase();
+        const choices = config.products
+          .filter((p) => p.toLowerCase().includes(focused))
+          .slice(0, 25)
+          .map((p) => ({ name: p, value: p }));
+        await interaction.respond(choices);
+        return;
+      }
+
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === "ticket-panel") await handleTicketPanelCommand(interaction);
         else if (interaction.commandName === "setup") await handleSetupCommand(interaction);
         else if (interaction.commandName === "order") await handleOrderCommand(interaction);
+        else if (interaction.commandName === "add-product") await handleAddProductCommand(interaction);
+        else if (interaction.commandName === "delete-product") await handleDeleteProductCommand(interaction);
         return;
       }
 

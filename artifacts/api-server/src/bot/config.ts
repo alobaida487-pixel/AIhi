@@ -6,9 +6,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "..", "..", "data");
 const CONFIG_FILE = join(DATA_DIR, "bot-config.json");
 
-interface BotConfig {
+export interface BotConfig {
   adminRoleId: string | null;
+  products: string[];
 }
+
+const DEFAULT_PRODUCTS = ["نيترو", "بوستات", "حسابات روب", "حسابات تيك انشاء قديم"];
 
 function ensureDataDir(): void {
   if (!existsSync(DATA_DIR)) {
@@ -19,13 +22,17 @@ function ensureDataDir(): void {
 export function loadConfig(): BotConfig {
   ensureDataDir();
   if (!existsSync(CONFIG_FILE)) {
-    return { adminRoleId: null };
+    return { adminRoleId: null, products: [...DEFAULT_PRODUCTS] };
   }
   try {
     const raw = readFileSync(CONFIG_FILE, "utf-8");
-    return JSON.parse(raw) as BotConfig;
+    const parsed = JSON.parse(raw) as Partial<BotConfig>;
+    return {
+      adminRoleId: parsed.adminRoleId ?? null,
+      products: parsed.products ?? [...DEFAULT_PRODUCTS],
+    };
   } catch {
-    return { adminRoleId: null };
+    return { adminRoleId: null, products: [...DEFAULT_PRODUCTS] };
   }
 }
 
