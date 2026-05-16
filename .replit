@@ -30,4 +30,4 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-DISCORD_ENABLED = "true"
+DISCORD_ENABLED = "false"
