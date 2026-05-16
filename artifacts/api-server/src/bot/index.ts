@@ -592,35 +592,11 @@ async function handleOrderCommand(interaction: ChatInputCommandInteraction): Pro
   const productLabel = interaction.options.getString("product", true).trim();
   const config = loadConfig();
 
-  if (!interaction.guild) {
-    await interaction.reply({ content: "يجب استخدام هذا الامر داخل السيرفر.", ephemeral: true });
-    return;
-  }
-
-  const existing = await findExistingTicket(interaction.guild, interaction.user.id);
-  if (existing) {
-    await interaction.reply({
-      content: `لديك تذكرة مفتوحة بالفعل: ${existing.toString()}\nاغلق التذكرة الحالية اولا قبل فتح تذكرة جديدة.`,
-      ephemeral: true,
-    });
-    return;
-  }
-
-  await interaction.deferReply({ ephemeral: true });
-
-  const ticketChannel = await createTicketChannel(
-    interaction.guild,
-    interaction.user.id,
-    "طلب",
-    config.adminRoleId,
-  );
-
   const embed = buildOrderEmbed(productLabel, interaction.user.id);
   const roleMention = config.adminRoleId ? `<@&${config.adminRoleId}>` : "";
   const content = [`طلب شراء جديد من <@${interaction.user.id}>`, roleMention].filter(Boolean).join("  |  ");
 
-  // /order: payment buttons only, no claim/close
-  await ticketChannel.send({
+  await interaction.reply({
     content,
     embeds: [embed],
     components: [buildPaymentRow()],
@@ -629,8 +605,6 @@ async function handleOrderCommand(interaction: ChatInputCommandInteraction): Pro
       roles: config.adminRoleId ? [config.adminRoleId] : [],
     },
   });
-
-  await interaction.editReply({ content: `تم فتح تذكرتك: ${ticketChannel.toString()}` });
 }
 
 // ─── /ticket-panel command ────────────────────────────────────────────────────
