@@ -28,6 +28,8 @@ import { logger } from "../lib/logger";
 import { loadConfig, saveConfig } from "./config";
 import { setStatus } from "./status";
 
+// ─── Bank data ────────────────────────────────────────────────────────────────
+
 const BANK_DATA = {
   rajhi: {
     label: "الراجحي",
@@ -37,10 +39,10 @@ const BANK_DATA = {
     color: 0x006400,
   },
   alinma: {
-    label: "الإنماء",
+    label: "الانماء",
     iban: "SA1205000068207423526001",
     name: "خالد المطيري",
-    bank: "بنك الإنماء",
+    bank: "بنك الانماء",
     color: 0x0055a5,
   },
   yourpay: {
@@ -54,6 +56,40 @@ const BANK_DATA = {
 
 type BankKey = keyof typeof BANK_DATA;
 
+// ─── Products ─────────────────────────────────────────────────────────────────
+
+const PRODUCTS = [
+  { value: "nitro", label: "نيترو" },
+  { value: "boosts", label: "بوستات" },
+  { value: "roblox", label: "حسابات روب" },
+  { value: "tiktok", label: "حسابات تيك انشاء قديم" },
+] as const;
+
+type ProductValue = (typeof PRODUCTS)[number]["value"];
+
+function getProductLabel(value: string): string {
+  return PRODUCTS.find((p) => p.value === value)?.label ?? value;
+}
+
+// ─── Duplicate ticket check ───────────────────────────────────────────────────
+
+const TICKET_PREFIXES = ["شراء", "استفسار", "شراكة", "طلب"];
+
+async function findExistingTicket(guild: Guild, userId: string): Promise<TextChannel | null> {
+  try {
+    const member = await guild.members.fetch(userId);
+    const username = member.user.username.toLowerCase();
+    const found = guild.channels.cache.find((ch) => {
+      if (ch.type !== ChannelType.GuildText) return false;
+      const name = ch.name.toLowerCase();
+      return TICKET_PREFIXES.some((p) => name.startsWith(p.toLowerCase())) && name.includes(username);
+    });
+    return (found as TextChannel) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Create private ticket channel ───────────────────────────────────────────
 
 async function createTicketChannel(
@@ -66,13 +102,11 @@ async function createTicketChannel(
   const username = member.user.username;
 
   const permissionOverwrites = [
-    // Hide from everyone
     {
       id: guild.roles.everyone.id,
       type: OverwriteType.Role,
       deny: [PermissionFlagsBits.ViewChannel],
     },
-    // Allow the ticket opener
     {
       id: userId,
       type: OverwriteType.Member,
@@ -84,7 +118,6 @@ async function createTicketChannel(
     },
   ];
 
-  // Allow the admin role if set
   if (adminRoleId) {
     permissionOverwrites.push({
       id: adminRoleId,
@@ -108,24 +141,21 @@ async function createTicketChannel(
   return channel as TextChannel;
 }
 
-// ─── Button rows ──────────────────────────────────────────────────────────────
+// ─── Rows ─────────────────────────────────────────────────────────────────────
 
 function buildPaymentRow(): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId("pay_rajhi")
       .setLabel("الراجحي")
-      .setEmoji("🏦")
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId("pay_alinma")
-      .setLabel("الإنماء")
-      .setEmoji("🏦")
+      .setLabel("الانماء")
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId("pay_yourpay")
       .setLabel("يور باي")
-      .setEmoji("💳")
       .setStyle(ButtonStyle.Secondary),
   );
 }
@@ -135,13 +165,11 @@ function buildAdminRow(disabled = false): ActionRowBuilder<ButtonBuilder> {
     new ButtonBuilder()
       .setCustomId("ticket_claim")
       .setLabel("استلام")
-      .setEmoji("✅")
       .setStyle(ButtonStyle.Success)
       .setDisabled(disabled),
     new ButtonBuilder()
       .setCustomId("ticket_close")
-      .setLabel("إغلاق")
-      .setEmoji("🔒")
+      .setLabel("اغلاق")
       .setStyle(ButtonStyle.Danger)
       .setDisabled(disabled),
   );
@@ -151,22 +179,19 @@ function buildPanelRow(): ActionRowBuilder<StringSelectMenuBuilder> {
   return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId("ticket_menu")
-      .setPlaceholder("🎫 اختر نوع طلبك...")
+      .setPlaceholder("اختر نوع طلبك...")
       .addOptions(
         new StringSelectMenuOptionBuilder()
           .setLabel("شراء منتج")
-          .setDescription("لشراء أي منتج من منتجاتنا")
-          .setEmoji("🛒")
+          .setDescription("لشراء اي منتج من منتجاتنا")
           .setValue("open_buy"),
         new StringSelectMenuOptionBuilder()
           .setLabel("استفسار")
-          .setDescription("لأي سؤال أو استفسار عام")
-          .setEmoji("❓")
+          .setDescription("لاي سؤال او استفسار عام")
           .setValue("open_inquiry"),
         new StringSelectMenuOptionBuilder()
           .setLabel("طلب شراكة")
           .setDescription("للتواصل بشأن الشراكات التجارية")
-          .setEmoji("🤝")
           .setValue("open_partnership"),
       ),
   );
@@ -177,58 +202,69 @@ function buildPanelRow(): ActionRowBuilder<StringSelectMenuBuilder> {
 function buildPanelEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xf59e0b)
-    .setTitle("🎫 نظام التذاكر")
-    .setDescription("مرحباً بك! اختر نوع طلبك من الأزرار أدناه وسيتم فتح قناة خاصة بك.")
+    .setTitle("نظام التذاكر")
+    .setDescription("مرحبا بك! اختر نوع طلبك من القائمة ادناه وسيتم فتح قناة خاصة بك.")
     .addFields(
-      { name: "🛒 شراء منتج", value: "لشراء أي منتج من منتجاتنا", inline: true },
-      { name: "❓ استفسار", value: "لأي سؤال أو استفسار عام", inline: true },
-      { name: "🤝 طلب شراكة", value: "للتواصل بشأن الشراكات التجارية", inline: true },
+      { name: "شراء منتج", value: "لشراء اي منتج من منتجاتنا", inline: true },
+      { name: "استفسار", value: "لاي سؤال او استفسار عام", inline: true },
+      { name: "طلب شراكة", value: "للتواصل بشأن الشراكات التجارية", inline: true },
     )
-    .setFooter({ text: "سيتم الرد عليك في أقرب وقت ممكن" })
+    .setFooter({ text: "سيتم الرد عليك في اقرب وقت ممكن" })
     .setTimestamp();
 }
 
-function buildOrderEmbed(product: string, price: string, userId: string): EmbedBuilder {
+function buildOrderEmbed(product: string, userId: string): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0xf59e0b)
-    .setTitle("🛒 طلب شراء جديد")
+    .setTitle("طلب شراء")
     .addFields(
-      { name: "📦 المنتج", value: product, inline: true },
-      { name: "💰 السعر", value: `${price} ريال`, inline: true },
-      { name: "👤 العضو", value: `<@${userId}>`, inline: true },
+      { name: "المنتج", value: product, inline: true },
+      { name: "العضو", value: `<@${userId}>`, inline: true },
     )
-    .setDescription(
-      "اختر طريقة الدفع المناسبة من الأزرار أدناه.\nسيتم إرسال تفاصيل التحويل إليك بشكل خاص.",
+    .setDescription("اختر طريقة الدفع المناسبة من الازرار ادناه.\nسيتم ارسال تفاصيل التحويل اليك بشكل خاص.")
+    .setFooter({ text: "بعد التحويل، ارسل ايصال الدفع في هذه القناة" })
+    .setTimestamp();
+}
+
+function buildTicketBuyEmbed(product: string, price: string, userId: string): EmbedBuilder {
+  return new EmbedBuilder()
+    .setColor(0xf59e0b)
+    .setTitle("طلب شراء جديد")
+    .addFields(
+      { name: "المنتج", value: product, inline: true },
+      { name: "السعر", value: `${price} ريال`, inline: true },
+      { name: "العضو", value: `<@${userId}>`, inline: true },
     )
-    .setFooter({ text: "بعد التحويل، أرسل إيصال الدفع في هذه القناة" })
+    .setDescription("اختر طريقة الدفع المناسبة من الازرار ادناه.\nسيتم ارسال تفاصيل التحويل اليك بشكل خاص.")
+    .setFooter({ text: "بعد التحويل، ارسل ايصال الدفع في هذه القناة" })
     .setTimestamp();
 }
 
 function buildInquiryEmbed(subject: string, userId: string): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x3b82f6)
-    .setTitle("❓ استفسار جديد")
+    .setTitle("استفسار جديد")
     .addFields(
-      { name: "📋 الموضوع", value: subject },
-      { name: "👤 العضو", value: `<@${userId}>` },
+      { name: "الموضوع", value: subject },
+      { name: "العضو", value: `<@${userId}>` },
     )
-    .setDescription("سيقوم فريق الدعم بالرد عليك قريباً.")
+    .setDescription("سيقوم فريق الدعم بالرد عليك قريبا.")
     .setTimestamp();
 }
 
 function buildPartnershipEmbed(details: string, userId: string): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(0x8b5cf6)
-    .setTitle("🤝 طلب شراكة جديد")
+    .setTitle("طلب شراكة جديد")
     .addFields(
-      { name: "📝 التفاصيل", value: details },
-      { name: "👤 مقدم الطلب", value: `<@${userId}>` },
+      { name: "التفاصيل", value: details },
+      { name: "مقدم الطلب", value: `<@${userId}>` },
     )
-    .setDescription("سيتم مراجعة طلبك والتواصل معك في أقرب وقت.")
+    .setDescription("سيتم مراجعة طلبك والتواصل معك في اقرب وقت.")
     .setTimestamp();
 }
 
-// ─── Bank button handler ──────────────────────────────────────────────────────
+// ─── Bank button ──────────────────────────────────────────────────────────────
 
 async function handleBankButton(
   interaction: ButtonInteraction,
@@ -236,19 +272,19 @@ async function handleBankButton(
 ): Promise<void> {
   const bank = BANK_DATA[bankKey];
   const embed = new EmbedBuilder()
-    .setTitle(`🏦 ${bank.label} — تفاصيل التحويل`)
+    .setTitle(`${bank.label} - تفاصيل التحويل`)
     .setColor(bank.color)
     .addFields(
-      { name: "🏦 البنك", value: bank.bank },
-      { name: "👤 الاسم", value: bank.name },
-      { name: "💳 رقم الآيبان", value: `\`\`\`${bank.iban}\`\`\`` },
+      { name: "البنك", value: bank.bank },
+      { name: "الاسم", value: bank.name },
+      { name: "رقم الايبان", value: `\`\`\`${bank.iban}\`\`\`` },
     )
-    .setDescription("حوّل المبلغ المطلوب ثم أرسل إيصال الدفع في هذه القناة.")
-    .setFooter({ text: "🔒 هذه الرسالة مرئية لك فقط" });
+    .setDescription("حول المبلغ المطلوب ثم ارسل ايصال الدفع في هذه القناة.")
+    .setFooter({ text: "هذه الرسالة مرئية لك فقط" });
   await interaction.reply({ embeds: [embed], ephemeral: true });
 }
 
-// ─── Claim / Close handlers ───────────────────────────────────────────────────
+// ─── Claim / Close ────────────────────────────────────────────────────────────
 
 async function handleClaimButton(interaction: ButtonInteraction): Promise<void> {
   const msg = interaction.message;
@@ -257,14 +293,14 @@ async function handleClaimButton(interaction: ButtonInteraction): Promise<void> 
 
   const updatedEmbed = EmbedBuilder.from(embed)
     .setColor(0x22c55e)
-    .setDescription(`✅ تم الاستلام بواسطة <@${interaction.user.id}>`);
+    .setDescription(`تم الاستلام بواسطة <@${interaction.user.id}>`);
 
   const hasPayment = msg.components.length > 1;
   await msg.edit({
     embeds: [updatedEmbed],
     components: hasPayment ? [buildPaymentRow(), buildAdminRow()] : [buildAdminRow()],
   });
-  await interaction.reply({ content: `✅ <@${interaction.user.id}> استلم هذه التذكرة.` });
+  await interaction.reply({ content: `<@${interaction.user.id}> استلم هذه التذكرة.` });
 }
 
 async function handleCloseButton(interaction: ButtonInteraction): Promise<void> {
@@ -274,8 +310,8 @@ async function handleCloseButton(interaction: ButtonInteraction): Promise<void> 
 
   const closedEmbed = EmbedBuilder.from(embed)
     .setColor(0x6b7280)
-    .setTitle("🔒 تذكرة مغلقة")
-    .setDescription(`تم الإغلاق بواسطة <@${interaction.user.id}>`)
+    .setTitle("تذكرة مغلقة")
+    .setDescription(`تم الاغلاق بواسطة <@${interaction.user.id}>`)
     .setFooter(null);
 
   const hasPayment = msg.components.length > 1;
@@ -285,10 +321,9 @@ async function handleCloseButton(interaction: ButtonInteraction): Promise<void> 
   });
 
   await interaction.reply({
-    content: `🔒 تم إغلاق التذكرة بواسطة <@${interaction.user.id}>.\nسيتم حذف هذه القناة بعد **5 ثوانٍ**.`,
+    content: `تم اغلاق التذكرة بواسطة <@${interaction.user.id}>.\nسيتم حذف هذه القناة بعد 5 ثوانٍ.`,
   });
 
-  // Delete channel after 5 seconds
   const channel = interaction.channel as TextChannel | null;
   if (channel) {
     setTimeout(() => {
@@ -297,17 +332,17 @@ async function handleCloseButton(interaction: ButtonInteraction): Promise<void> 
   }
 }
 
-// ─── Panel button → show modal ────────────────────────────────────────────────
+// ─── Panel select menu → modals ───────────────────────────────────────────────
 
 async function handleOpenBuyModal(interaction: MessageComponentInteraction): Promise<void> {
-  const modal = new ModalBuilder().setCustomId("modal_buy").setTitle("🛒 طلب شراء منتج");
+  const modal = new ModalBuilder().setCustomId("modal_buy").setTitle("طلب شراء منتج");
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
         .setCustomId("buy_product")
         .setLabel("اسم المنتج")
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder("مثال: آيفون 15 برو")
+        .setPlaceholder("مثال: ايفون 15 برو")
         .setRequired(true),
     ),
     new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -323,7 +358,7 @@ async function handleOpenBuyModal(interaction: MessageComponentInteraction): Pro
 }
 
 async function handleOpenInquiryModal(interaction: MessageComponentInteraction): Promise<void> {
-  const modal = new ModalBuilder().setCustomId("modal_inquiry").setTitle("❓ استفسار");
+  const modal = new ModalBuilder().setCustomId("modal_inquiry").setTitle("استفسار");
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
@@ -338,7 +373,7 @@ async function handleOpenInquiryModal(interaction: MessageComponentInteraction):
 }
 
 async function handleOpenPartnershipModal(interaction: MessageComponentInteraction): Promise<void> {
-  const modal = new ModalBuilder().setCustomId("modal_partnership").setTitle("🤝 طلب شراكة");
+  const modal = new ModalBuilder().setCustomId("modal_partnership").setTitle("طلب شراكة");
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
       new TextInputBuilder()
@@ -352,7 +387,7 @@ async function handleOpenPartnershipModal(interaction: MessageComponentInteracti
   await interaction.showModal(modal);
 }
 
-// ─── Modal submit → create ticket channel ────────────────────────────────────
+// ─── Modal submits → create ticket channels ───────────────────────────────────
 
 async function handleBuyModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
   const product = interaction.fields.getTextInputValue("buy_product");
@@ -360,7 +395,16 @@ async function handleBuyModalSubmit(interaction: ModalSubmitInteraction): Promis
   const config = loadConfig();
 
   if (!interaction.guild) {
-    await interaction.reply({ content: "❌ يجب استخدام هذا الأمر داخل السيرفر.", ephemeral: true });
+    await interaction.reply({ content: "يجب استخدام هذا الامر داخل السيرفر.", ephemeral: true });
+    return;
+  }
+
+  const existing = await findExistingTicket(interaction.guild, interaction.user.id);
+  if (existing) {
+    await interaction.reply({
+      content: `لديك تذكرة مفتوحة بالفعل: ${existing.toString()}\nاغلق التذكرة الحالية اولا قبل فتح تذكرة جديدة.`,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -373,14 +417,9 @@ async function handleBuyModalSubmit(interaction: ModalSubmitInteraction): Promis
     config.adminRoleId,
   );
 
-  const embed = buildOrderEmbed(product, price, interaction.user.id);
+  const embed = buildTicketBuyEmbed(product, price, interaction.user.id);
   const roleMention = config.adminRoleId ? `<@&${config.adminRoleId}>` : "";
-  const content = [
-    `📬 تذكرة شراء جديدة من <@${interaction.user.id}>`,
-    roleMention ? `🔔 ${roleMention}` : "",
-  ]
-    .filter(Boolean)
-    .join("  |  ");
+  const content = [`تذكرة شراء جديدة من <@${interaction.user.id}>`, roleMention].filter(Boolean).join("  |  ");
 
   await ticketChannel.send({
     content,
@@ -392,7 +431,7 @@ async function handleBuyModalSubmit(interaction: ModalSubmitInteraction): Promis
     },
   });
 
-  await interaction.editReply({ content: `✅ تم فتح تذكرتك: ${ticketChannel.toString()}` });
+  await interaction.editReply({ content: `تم فتح تذكرتك: ${ticketChannel.toString()}` });
 }
 
 async function handleInquiryModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
@@ -400,7 +439,16 @@ async function handleInquiryModalSubmit(interaction: ModalSubmitInteraction): Pr
   const config = loadConfig();
 
   if (!interaction.guild) {
-    await interaction.reply({ content: "❌ يجب استخدام هذا الأمر داخل السيرفر.", ephemeral: true });
+    await interaction.reply({ content: "يجب استخدام هذا الامر داخل السيرفر.", ephemeral: true });
+    return;
+  }
+
+  const existing = await findExistingTicket(interaction.guild, interaction.user.id);
+  if (existing) {
+    await interaction.reply({
+      content: `لديك تذكرة مفتوحة بالفعل: ${existing.toString()}\nاغلق التذكرة الحالية اولا قبل فتح تذكرة جديدة.`,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -415,12 +463,7 @@ async function handleInquiryModalSubmit(interaction: ModalSubmitInteraction): Pr
 
   const embed = buildInquiryEmbed(subject, interaction.user.id);
   const roleMention = config.adminRoleId ? `<@&${config.adminRoleId}>` : "";
-  const content = [
-    `📬 استفسار جديد من <@${interaction.user.id}>`,
-    roleMention ? `🔔 ${roleMention}` : "",
-  ]
-    .filter(Boolean)
-    .join("  |  ");
+  const content = [`استفسار جديد من <@${interaction.user.id}>`, roleMention].filter(Boolean).join("  |  ");
 
   await ticketChannel.send({
     content,
@@ -432,17 +475,24 @@ async function handleInquiryModalSubmit(interaction: ModalSubmitInteraction): Pr
     },
   });
 
-  await interaction.editReply({ content: `✅ تم فتح استفسارك: ${ticketChannel.toString()}` });
+  await interaction.editReply({ content: `تم فتح استفسارك: ${ticketChannel.toString()}` });
 }
 
-async function handlePartnershipModalSubmit(
-  interaction: ModalSubmitInteraction,
-): Promise<void> {
+async function handlePartnershipModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
   const details = interaction.fields.getTextInputValue("partnership_details");
   const config = loadConfig();
 
   if (!interaction.guild) {
-    await interaction.reply({ content: "❌ يجب استخدام هذا الأمر داخل السيرفر.", ephemeral: true });
+    await interaction.reply({ content: "يجب استخدام هذا الامر داخل السيرفر.", ephemeral: true });
+    return;
+  }
+
+  const existing = await findExistingTicket(interaction.guild, interaction.user.id);
+  if (existing) {
+    await interaction.reply({
+      content: `لديك تذكرة مفتوحة بالفعل: ${existing.toString()}\nاغلق التذكرة الحالية اولا قبل فتح تذكرة جديدة.`,
+      ephemeral: true,
+    });
     return;
   }
 
@@ -457,12 +507,7 @@ async function handlePartnershipModalSubmit(
 
   const embed = buildPartnershipEmbed(details, interaction.user.id);
   const roleMention = config.adminRoleId ? `<@&${config.adminRoleId}>` : "";
-  const content = [
-    `📬 طلب شراكة من <@${interaction.user.id}>`,
-    roleMention ? `🔔 ${roleMention}` : "",
-  ]
-    .filter(Boolean)
-    .join("  |  ");
+  const content = [`طلب شراكة من <@${interaction.user.id}>`, roleMention].filter(Boolean).join("  |  ");
 
   await ticketChannel.send({
     content,
@@ -474,44 +519,81 @@ async function handlePartnershipModalSubmit(
     },
   });
 
-  await interaction.editReply({ content: `✅ تم فتح طلب الشراكة: ${ticketChannel.toString()}` });
+  await interaction.editReply({ content: `تم فتح طلب الشراكة: ${ticketChannel.toString()}` });
 }
 
-// ─── Slash command handlers ───────────────────────────────────────────────────
+// ─── /order command ───────────────────────────────────────────────────────────
 
-async function handleTicketPanelCommand(
-  interaction: ChatInputCommandInteraction,
-): Promise<void> {
-  if (
-    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) &&
-    !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
-  ) {
+async function handleOrderCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  const productValue = interaction.options.getString("product", true) as ProductValue;
+  const productLabel = getProductLabel(productValue);
+  const config = loadConfig();
+
+  if (!interaction.guild) {
+    await interaction.reply({ content: "يجب استخدام هذا الامر داخل السيرفر.", ephemeral: true });
+    return;
+  }
+
+  const existing = await findExistingTicket(interaction.guild, interaction.user.id);
+  if (existing) {
     await interaction.reply({
-      content: "❌ تحتاج صلاحية **Administrator** أو **Manage Server**.",
+      content: `لديك تذكرة مفتوحة بالفعل: ${existing.toString()}\nاغلق التذكرة الحالية اولا قبل فتح تذكرة جديدة.`,
       ephemeral: true,
     });
     return;
   }
 
-  await interaction.reply({ content: "✅ تم إرسال البانل.", ephemeral: true });
-  const panelChannel = interaction.channel as TextChannel | null;
-  await panelChannel?.send({
-    embeds: [buildPanelEmbed()],
-    components: [buildPanelRow()],
+  await interaction.deferReply({ ephemeral: true });
+
+  const ticketChannel = await createTicketChannel(
+    interaction.guild,
+    interaction.user.id,
+    "طلب",
+    config.adminRoleId,
+  );
+
+  const embed = buildOrderEmbed(productLabel, interaction.user.id);
+  const roleMention = config.adminRoleId ? `<@&${config.adminRoleId}>` : "";
+  const content = [`طلب شراء جديد من <@${interaction.user.id}>`, roleMention].filter(Boolean).join("  |  ");
+
+  // /order: payment buttons only, no claim/close
+  await ticketChannel.send({
+    content,
+    embeds: [embed],
+    components: [buildPaymentRow()],
+    allowedMentions: {
+      users: [interaction.user.id],
+      roles: config.adminRoleId ? [config.adminRoleId] : [],
+    },
   });
+
+  await interaction.editReply({ content: `تم فتح تذكرتك: ${ticketChannel.toString()}` });
 }
 
-async function handleSetupCommand(
-  interaction: ChatInputCommandInteraction,
-): Promise<void> {
+// ─── /ticket-panel command ────────────────────────────────────────────────────
+
+async function handleTicketPanelCommand(interaction: ChatInputCommandInteraction): Promise<void> {
   if (
     !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) &&
     !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
   ) {
-    await interaction.reply({
-      content: "❌ تحتاج صلاحية **Administrator** أو **Manage Server**.",
-      ephemeral: true,
-    });
+    await interaction.reply({ content: "تحتاج صلاحية Administrator او Manage Server.", ephemeral: true });
+    return;
+  }
+
+  await interaction.reply({ content: "تم ارسال البانل.", ephemeral: true });
+  const panelChannel = interaction.channel as TextChannel | null;
+  await panelChannel?.send({ embeds: [buildPanelEmbed()], components: [buildPanelRow()] });
+}
+
+// ─── /setup command ───────────────────────────────────────────────────────────
+
+async function handleSetupCommand(interaction: ChatInputCommandInteraction): Promise<void> {
+  if (
+    !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) &&
+    !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)
+  ) {
+    await interaction.reply({ content: "تحتاج صلاحية Administrator او Manage Server.", ephemeral: true });
     return;
   }
 
@@ -521,7 +603,7 @@ async function handleSetupCommand(
   saveConfig(config);
 
   await interaction.reply({
-    content: `✅ تم ضبط رتبة الإدارة على ${role.toString()}.\nستُذكر عند فتح كل تذكرة.`,
+    content: `تم ضبط رتبة الادارة على ${role.toString()}.\nستُذكر عند فتح كل تذكرة.`,
     ephemeral: true,
   });
 }
@@ -544,13 +626,29 @@ export async function startBot(): Promise<void> {
   const commands = [
     new SlashCommandBuilder()
       .setName("ticket-panel")
-      .setDescription("أرسل بانل التذاكر في هذه القناة")
+      .setDescription("ارسل بانل التذاكر في هذه القناة")
       .toJSON(),
     new SlashCommandBuilder()
       .setName("setup")
-      .setDescription("ضبط رتبة الإدارة التي ستُذكر عند فتح التذاكر")
+      .setDescription("ضبط رتبة الادارة التي ستُذكر عند فتح التذاكر")
       .addRoleOption((opt) =>
-        opt.setName("role").setDescription("رتبة الإدارة").setRequired(true),
+        opt.setName("role").setDescription("رتبة الادارة").setRequired(true),
+      )
+      .toJSON(),
+    new SlashCommandBuilder()
+      .setName("order")
+      .setDescription("فتح تذكرة شراء منتج")
+      .addStringOption((opt) =>
+        opt
+          .setName("product")
+          .setDescription("اختر المنتج الذي تريد شراءه")
+          .setRequired(true)
+          .addChoices(
+            { name: "نيترو", value: "nitro" },
+            { name: "بوستات", value: "boosts" },
+            { name: "حسابات روب", value: "roblox" },
+            { name: "حسابات تيك انشاء قديم", value: "tiktok" },
+          ),
       )
       .toJSON(),
   ];
@@ -562,7 +660,7 @@ export async function startBot(): Promise<void> {
     const rest = new REST({ version: "10" }).setToken(token);
     try {
       await rest.put(Routes.applicationCommands(c.user.id), { body: commands });
-      logger.info("Slash commands registered (ticket-panel, setup)");
+      logger.info("Slash commands registered (ticket-panel, setup, order)");
     } catch (err) {
       logger.error({ err }, "Failed to register slash commands");
     }
@@ -573,6 +671,7 @@ export async function startBot(): Promise<void> {
       if (interaction.isChatInputCommand()) {
         if (interaction.commandName === "ticket-panel") await handleTicketPanelCommand(interaction);
         else if (interaction.commandName === "setup") await handleSetupCommand(interaction);
+        else if (interaction.commandName === "order") await handleOrderCommand(interaction);
         return;
       }
 
