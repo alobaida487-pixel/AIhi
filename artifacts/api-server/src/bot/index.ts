@@ -8,6 +8,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
@@ -17,6 +19,7 @@ import {
   type Interaction,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
+  type MessageComponentInteraction,
   type ModalSubmitInteraction,
   type TextChannel,
   type Guild,
@@ -144,23 +147,28 @@ function buildAdminRow(disabled = false): ActionRowBuilder<ButtonBuilder> {
   );
 }
 
-function buildPanelRow(): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId("open_buy")
-      .setLabel("شراء منتج")
-      .setEmoji("🛒")
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId("open_inquiry")
-      .setLabel("استفسار")
-      .setEmoji("❓")
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId("open_partnership")
-      .setLabel("طلب شراكة")
-      .setEmoji("🤝")
-      .setStyle(ButtonStyle.Secondary),
+function buildPanelRow(): ActionRowBuilder<StringSelectMenuBuilder> {
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId("ticket_menu")
+      .setPlaceholder("🎫 اختر نوع طلبك...")
+      .addOptions(
+        new StringSelectMenuOptionBuilder()
+          .setLabel("شراء منتج")
+          .setDescription("لشراء أي منتج من منتجاتنا")
+          .setEmoji("🛒")
+          .setValue("open_buy"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("استفسار")
+          .setDescription("لأي سؤال أو استفسار عام")
+          .setEmoji("❓")
+          .setValue("open_inquiry"),
+        new StringSelectMenuOptionBuilder()
+          .setLabel("طلب شراكة")
+          .setDescription("للتواصل بشأن الشراكات التجارية")
+          .setEmoji("🤝")
+          .setValue("open_partnership"),
+      ),
   );
 }
 
@@ -291,7 +299,7 @@ async function handleCloseButton(interaction: ButtonInteraction): Promise<void> 
 
 // ─── Panel button → show modal ────────────────────────────────────────────────
 
-async function handleOpenBuyModal(interaction: ButtonInteraction): Promise<void> {
+async function handleOpenBuyModal(interaction: MessageComponentInteraction): Promise<void> {
   const modal = new ModalBuilder().setCustomId("modal_buy").setTitle("🛒 طلب شراء منتج");
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -314,7 +322,7 @@ async function handleOpenBuyModal(interaction: ButtonInteraction): Promise<void>
   await interaction.showModal(modal);
 }
 
-async function handleOpenInquiryModal(interaction: ButtonInteraction): Promise<void> {
+async function handleOpenInquiryModal(interaction: MessageComponentInteraction): Promise<void> {
   const modal = new ModalBuilder().setCustomId("modal_inquiry").setTitle("❓ استفسار");
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -329,7 +337,7 @@ async function handleOpenInquiryModal(interaction: ButtonInteraction): Promise<v
   await interaction.showModal(modal);
 }
 
-async function handleOpenPartnershipModal(interaction: ButtonInteraction): Promise<void> {
+async function handleOpenPartnershipModal(interaction: MessageComponentInteraction): Promise<void> {
   const modal = new ModalBuilder().setCustomId("modal_partnership").setTitle("🤝 طلب شراكة");
   modal.addComponents(
     new ActionRowBuilder<TextInputBuilder>().addComponents(
@@ -568,12 +576,17 @@ export async function startBot(): Promise<void> {
         return;
       }
 
+      if (interaction.isStringSelectMenu() && interaction.customId === "ticket_menu") {
+        const value = interaction.values[0];
+        if (value === "open_buy") await handleOpenBuyModal(interaction);
+        else if (value === "open_inquiry") await handleOpenInquiryModal(interaction);
+        else if (value === "open_partnership") await handleOpenPartnershipModal(interaction);
+        return;
+      }
+
       if (interaction.isButton()) {
         const id = interaction.customId;
-        if (id === "open_buy") await handleOpenBuyModal(interaction);
-        else if (id === "open_inquiry") await handleOpenInquiryModal(interaction);
-        else if (id === "open_partnership") await handleOpenPartnershipModal(interaction);
-        else if (id === "pay_rajhi") await handleBankButton(interaction, "rajhi");
+        if (id === "pay_rajhi") await handleBankButton(interaction, "rajhi");
         else if (id === "pay_alinma") await handleBankButton(interaction, "alinma");
         else if (id === "pay_yourpay") await handleBankButton(interaction, "yourpay");
         else if (id === "ticket_claim") await handleClaimButton(interaction);
