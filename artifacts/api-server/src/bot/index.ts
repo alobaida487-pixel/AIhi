@@ -12,10 +12,10 @@ import {
   type Interaction,
   type ChatInputCommandInteraction,
   type ButtonInteraction,
-  TextChannel,
 } from "discord.js";
 import { logger } from "../lib/logger";
 import { loadConfig, saveConfig } from "./config";
+import { setStatus } from "./status";
 
 const BANK_DATA = {
   rajhi: {
@@ -100,12 +100,15 @@ function buildOrderEmbed(
   if (closed) {
     embed.setDescription("تم إغلاق هذه التذكرة.");
   } else if (claimedBy) {
-    embed.setDescription(`✅ تم الاستلام بواسطة <@${claimedBy}>\n\nاختر طريقة الدفع من الأزرار أدناه. سيتم إرسال تفاصيل التحويل بشكل خاص.`);
-  } else {
     embed.setDescription(
-      "اختر طريقة الدفع المناسبة من الأزرار أدناه.\nسيتم إرسال تفاصيل التحويل إليك بشكل خاص.",
+      `✅ تم الاستلام بواسطة <@${claimedBy}>\n\nاختر طريقة الدفع من الأزرار أدناه. سيتم إرسال تفاصيل التحويل بشكل خاص.`,
     );
-    embed.setFooter({ text: "بعد التحويل، أرسل إيصال الدفع في هذه القناة" });
+  } else {
+    embed
+      .setDescription(
+        "اختر طريقة الدفع المناسبة من الأزرار أدناه.\nسيتم إرسال تفاصيل التحويل إليك بشكل خاص.",
+      )
+      .setFooter({ text: "بعد التحويل، أرسل إيصال الدفع في هذه القناة" });
   }
 
   return embed;
@@ -136,20 +139,14 @@ async function handleClaimButton(interaction: ButtonInteraction): Promise<void> 
   if (!embed) return;
 
   const product = embed.fields.find((f) => f.name === "📦 المنتج")?.value ?? "";
-  const price = embed.fields.find((f) => f.name === "💰 السعر")?.value?.replace(" ريال", "") ?? "";
+  const price =
+    embed.fields.find((f) => f.name === "💰 السعر")?.value?.replace(" ريال", "") ?? "";
   const userField = embed.fields.find((f) => f.name === "👤 العضو")?.value ?? "";
   const userId = userField.replace(/[<@>]/g, "");
 
   const newEmbed = buildOrderEmbed(product, price, userId, interaction.user.id);
-
-  await msg.edit({
-    embeds: [newEmbed],
-    components: [buildPaymentRow(), buildAdminRow()],
-  });
-
-  await interaction.reply({
-    content: `✅ <@${interaction.user.id}> استلم هذه التذكرة.`,
-  });
+  await msg.edit({ embeds: [newEmbed], components: [buildPaymentRow(), buildAdminRow()] });
+  await interaction.reply({ content: `✅ <@${interaction.user.id}> استلم هذه التذكرة.` });
 }
 
 async function handleCloseButton(interaction: ButtonInteraction): Promise<void> {
@@ -158,17 +155,16 @@ async function handleCloseButton(interaction: ButtonInteraction): Promise<void> 
   if (!embed) return;
 
   const product = embed.fields.find((f) => f.name === "📦 المنتج")?.value ?? "";
-  const price = embed.fields.find((f) => f.name === "💰 السعر")?.value?.replace(" ريال", "") ?? "";
+  const price =
+    embed.fields.find((f) => f.name === "💰 السعر")?.value?.replace(" ريال", "") ?? "";
   const userField = embed.fields.find((f) => f.name === "👤 العضو")?.value ?? "";
   const userId = userField.replace(/[<@>]/g, "");
 
   const closedEmbed = buildOrderEmbed(product, price, userId, undefined, true);
-
   await msg.edit({
     embeds: [closedEmbed],
     components: [buildPaymentRow(), buildAdminRow(true)],
   });
-
   await interaction.reply({
     content: `🔒 تم إغلاق التذكرة بواسطة <@${interaction.user.id}>.`,
   });
@@ -182,14 +178,9 @@ async function handleOrderCommand(
   const config = loadConfig();
 
   const embed = buildOrderEmbed(product, price, interaction.user.id);
-
   const roleMention = config.adminRoleId ? `<@&${config.adminRoleId}>` : "";
   const userMention = `<@${interaction.user.id}>`;
-
-  const content = [
-    `📬 تذكرة جديدة من ${userMention}`,
-    roleMention ? `🔔 ${roleMention}` : "",
-  ]
+  const content = [`📬 تذكرة جديدة من ${userMention}`, roleMention ? `🔔 ${roleMention}` : ""]
     .filter(Boolean)
     .join("  |  ");
 
@@ -197,7 +188,10 @@ async function handleOrderCommand(
     content,
     embeds: [embed],
     components: [buildPaymentRow(), buildAdminRow()],
-    allowedMentions: { users: [interaction.user.id], roles: config.adminRoleId ? [config.adminRoleId] : [] },
+    allowedMentions: {
+      users: [interaction.user.id],
+      roles: config.adminRoleId ? [config.adminRoleId] : [],
+    },
   });
 }
 
@@ -228,16 +222,16 @@ async function handleSetupCommand(
 
 export async function startBot(): Promise<void> {
   const token = process.env["DISCORD_BOT_TOKEN"];
-  const enabled = process.env["DISCORD_ENABLED"];
 
-  if (!token || enabled !== "true") {
-    logger.info("Discord bot is disabled (DISCORD_ENABLED != true or no token)");
+  if (!token) {
+    logger.info("DISCORD_BOT_TOKEN not set — bot disabled");
+    setStatus({ enabled: false, connected: false, error: "No token provided" });
     return;
   }
 
-  const client = new Client({
-    intents: [GatewayIntentBits.Guilds],
-  });
+  setStatus({ enabled: true });
+
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
   const commands = [
     new SlashCommandBuilder()
@@ -259,8 +253,10 @@ export async function startBot(): Promise<void> {
       .toJSON(),
   ];
 
-  client.once("ready", async (c) => {
+  client.once("clientReady", async (c) => {
     logger.info({ tag: c.user.tag }, "Discord bot is ready");
+    setStatus({ connected: true, tag: c.user.tag, error: null });
+
     const rest = new REST({ version: "10" }).setToken(token);
     try {
       await rest.put(Routes.applicationCommands(c.user.id), { body: commands });
@@ -273,14 +269,10 @@ export async function startBot(): Promise<void> {
   client.on("interactionCreate", async (interaction: Interaction) => {
     try {
       if (interaction.isChatInputCommand()) {
-        if (interaction.commandName === "order") {
-          await handleOrderCommand(interaction);
-        } else if (interaction.commandName === "setup") {
-          await handleSetupCommand(interaction);
-        }
+        if (interaction.commandName === "order") await handleOrderCommand(interaction);
+        else if (interaction.commandName === "setup") await handleSetupCommand(interaction);
         return;
       }
-
       if (interaction.isButton()) {
         const id = interaction.customId;
         if (id === "pay_rajhi") await handleBankButton(interaction, "rajhi");
@@ -296,7 +288,13 @@ export async function startBot(): Promise<void> {
 
   client.on("error", (err) => {
     logger.error({ err }, "Discord client error");
+    setStatus({ connected: false, error: String(err) });
   });
 
-  await client.login(token);
+  try {
+    await client.login(token);
+  } catch (err) {
+    logger.error({ err }, "Failed to login to Discord");
+    setStatus({ connected: false, error: String(err) });
+  }
 }
